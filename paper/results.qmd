@@ -245,6 +245,48 @@ tibble(
 
 The ANOVA comparison indicates that the quadratic specification fits significantly better than the linear model (p \< 0.001). Consistent with this result, the quadratic model has a higher adjusted R-squared and a lower AIC, indicating improved explanatory power and overall model fit.
 
+### Decision Tree Multi-actor Hypertension Testing
+
+**Figure 5** presents a classification decision tree predicting the likelihood of Stage 2 hypertension based on multiple individual-level characteristics, including sleep duration, age, stress level, body mass index category, and sleep disorder status. The tree highlights non-linear and interaction effects that are difficult to capture with standard regression models, illustrating how combinations of sleep-related and physiological factors jointly shape hypertension risk.
+
+In particular, the results suggest that sleep disorders and elevated stress levels play a central role in distinguishing high-risk individuals, while sleep duration operates as a secondary but meaningful factor within specific subgroups. This multivariate structure underscores the importance of considering sleep behavior alongside broader health and lifestyle characteristics when assessing cardiovascular risk.
+
+```{r}
+library(rpart)
+library(rpart.plot)
+
+tree_df <- df2 %>%
+transmute(
+stage2_htn = factor(stage2_htn, levels = c(0, 1), labels = c("No", "Yes")),
+Age = Age,
+Sleep_Duration = `Sleep Duration`,
+Stress_Level = `Stress Level`,
+BMI_Category = `BMI Category`,
+Sleep_Disorder = `Sleep Disorder`
+) %>%
+filter(complete.cases(.))
+
+set.seed(123)
+
+tree_model <- rpart(
+stage2_htn ~ .,
+data = tree_df,
+method = "class",
+control = rpart.control(cp = 0.01, minsplit = 20, maxdepth = 4)
+)
+
+rpart.plot(
+tree_model,
+type = 2,
+extra = 104,
+fallen.leaves = TRUE,
+under = TRUE,
+faclen = 0,
+main = "Figure 5: Decision Tree Predicting Stage 2 Hypertension"
+)
+
+```
+
 ## Discussion
 
 This study examined the association between sleep duration and systolic blood pressure using a large observational dataset. While an initial linear specification suggested that longer sleep duration is associated with lower systolic blood pressure on average, subsequent analyses revealed that this relationship is better characterized as non-linear.

@@ -183,7 +183,7 @@ df <- df %>%
     stage2_htn = factor(stage2_htn, levels = c(0, 1), labels = c("No", "Yes"))
   )
 
-# 4) Fit decision tree (classification)
+# 4) Fit decision tree 
 # NOTE: cp controls how complex the tree is (bigger = simpler)
 tree_model <- rpart(
   stage2_htn ~ `Sleep Duration` +
@@ -200,7 +200,7 @@ tree_model <- rpart(
   control = rpart.control(cp = 0.01)
 )
 
-# 5) Plot tree (to Viewer / Plots)
+# 5) Plot tree 
 rpart.plot(
   tree_model,
   type = 3,                 # clean split labels
@@ -209,7 +209,7 @@ rpart.plot(
   main = "Figure 5: Decision Tree Predicting Stage 2 Hypertension"
 )
 
-# 6) Save PNG (keeps your repo organized)
+# 6) Save PNG 
 dir.create("figures/blood_pressure", showWarnings = FALSE, recursive = TRUE)
 
 png("figures/blood_pressure/fig5_decision_tree_stage2_htn.png",
@@ -223,4 +223,3 @@ rpart.plot(
   main = "Figure 5: Decision Tree Predicting Stage 2 Hypertension"
 )
 
-dev.off()

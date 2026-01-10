@@ -1,324 +1,226 @@
-# ---------------------------------------------------------
-# Sleep Duration and Blood Pressure Analysis
-# Project: sleep-data-project
-# Purpose: Explore the association between sleep duration
-#          and systolic blood pressure
-# Data: Sleep.data.xlsx (synthetic health dataset)
-# ---------------------------------------------------------
+# ============================================================
+# Sleep Duration & Blood Pressure Project
+# Purpose: Build + save all BP figures
+# ============================================================
 
-# Load required libraries
+# ---------------------------
+# 0) Packages
+# ---------------------------
 library(tidyverse)
 library(readxl)
+library(rpart)
+library(rpart.plot)
 
-# ---------------------------------------------------------
-# Load the dataset
-# ---------------------------------------------------------
 
-df <- read_excel("data/Sleep.data.xlsx")
+out_dir <- file.path("figures", "blood_pressure")
 
-# Inspect structure and column names
-glimpse(df)
-names(df)
+# Create folder if it doesn't exist
+if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
 
-# ---------------------------------------------------------
-# Clean blood pressure into numeric variables
-# ---------------------------------------------------------
-# Blood Pressure is stored as "systolic/diastolic" (e.g., "120/80")
-# We split this into two numeric columns
+# ---------------------------
+# 2) Load + clean data (self-contained)
+# ---------------------------
+# # NOTE: This assumes your project root contains /data/Sleep.data.xlsx
+df_raw <- read_excel("data/Sleep.data.xlsx")
 
-df2 <- df %>%
-  separate(
-    `Blood Pressure`,
-    into = c("sys_bp", "dia_bp"),
-    sep = "/",
-    convert = TRUE
-  ) %>%
+# # NOTE: Blood Pressure is stored like "120/80" -> split into sys/dia
+df2 <- df_raw %>%
+  separate(`Blood Pressure`, into = c("sys_bp", "dia_bp"), sep = "/", remove = FALSE) %>%
   mutate(
     sys_bp = as.numeric(sys_bp),
     dia_bp = as.numeric(dia_bp),
     
-    # Create a hypertension indicator (1 = hypertensive)
-    hypertensive = if_else(sys_bp >= 130 | dia_bp >= 80, 1L, 0L)
+    # # NOTE: Standard HTN threshold (used earlier)
+    hypertensive = if_else(sys_bp >= 130 | dia_bp >= 80, 1L, 0L),
+    
+    # # NOTE: Stage 2 threshold used for clearer separation
+    stage2_htn = if_else(sys_bp >= 140 | dia_bp >= 90, 1L, 0L),
+    
+    # # NOTE: Sleep groups for bar charts
+    sleep_group = case_when(
+      `Sleep Duration` >= 5 & `Sleep Duration` < 6 ~ "5–6",
+      `Sleep Duration` >= 6 & `Sleep Duration` < 7 ~ "6–7",
+      `Sleep Duration` >= 7 & `Sleep Duration` < 8 ~ "7–8",
+      `Sleep Duration` >= 8 ~ "8+",
+      TRUE ~ NA_character_
+    ),
+    sleep_group = factor(sleep_group, levels = c("5–6", "6–7", "7–8", "8+"))
+  ) %>%
+  drop_na(sys_bp, dia_bp, `Sleep Duration`, sleep_group)
+
+# ---------------------------
+# Helper: save ggplot with consistent settings
+# ---------------------------
+save_plot <- function(p, filename, width = 9, height = 6, dpi = 300) {
+  ggsave(
+    filename = file.path(out_dir, filename),
+    plot = p,
+    width = width,
+    height = height,
+    dpi = dpi
   )
+}
 
-# Quick summary checks
-summary(df2$sys_bp)
-summary(df2$dia_bp)
-table(df2$hypertensive)
-
-# ---------------------------------------------------------
-# FIGURE 1: Sleep Duration vs Systolic Blood Pressure
-# ---------------------------------------------------------
-# Scatter plot with linear trend to visualize association
-
-p1 <- ggplot(df2, aes(x = `Sleep Duration`, y = sys_bp)) +
-  geom_point(alpha = 0.25) +
-  geom_smooth(method = "lm", se = TRUE) +
+# ============================================================
+# FIGURE 1: Sleep Duration vs Systolic BP (Linear smooth)
+# ============================================================
+fig1 <- ggplot(df2, aes(x = `Sleep Duration`, y = sys_bp)) +
+  geom_jitter(alpha = 0.3, width = 0.05, height = 0) +
+  geom_smooth(method = "lm", se = FALSE) +
   labs(
-    title = "Sleep Duration vs Systolic Blood Pressure",
-    subtitle = "Longer sleep duration is associated with lower systolic BP",
     x = "Sleep Duration (hours)",
     y = "Systolic Blood Pressure (mmHg)"
   ) +
-  theme_minimal()
+  theme_minimal() +
+  ggtitle("Figure 1: Sleep Duration vs Systolic Blood Pressure")
 
-p1
+save_plot(fig1, "Figure1_sleep_vs_systolic_bp_linear.png")
 
-# Save Figure 1
-ggsave(
-  "figures/sleep_vs_systolic_bp.png",
-  plot = p1,
-  width = 6,
-  height = 4,
-  dpi = 300
-)
-
-# ---------------------------------------------------------
-# FIGURE 2: Average Systolic BP by Sleep Duration Group
-# ---------------------------------------------------------
-# Group sleep duration into meaningful categories
-
-df2 <- df2 %>%
-  mutate(
-    sleep_group = cut(
-      `Sleep Duration`,
-      breaks = c(5, 6, 7, 8, Inf),
-      labels = c("5–6", "6–7", "7–8", "8+"),
-      right = FALSE
-    )
-  )
-
-p2 <- df2 %>%
+# ============================================================
+# FIGURE 2: Mean Systolic BP by Sleep Group
+# ============================================================
+mean_df <- df2 %>%
   group_by(sleep_group) %>%
-  summarise(
-    mean_sys_bp = mean(sys_bp, na.rm = TRUE),
-    .groups = "drop"
-  ) %>%
-  ggplot(aes(x = sleep_group, y = mean_sys_bp)) +
-  geom_col(fill = "steelblue") +
+  summarise(mean_sys_bp = mean(sys_bp, na.rm = TRUE), .groups = "drop")
+
+fig2 <- ggplot(mean_df, aes(x = sleep_group, y = mean_sys_bp)) +
+  geom_col() +
   labs(
-    title = "Average Systolic Blood Pressure by Sleep Duration Group",
     x = "Sleep Duration Group (hours)",
     y = "Mean Systolic Blood Pressure (mmHg)"
   ) +
-  theme_minimal()
+  theme_minimal() +
+  ggtitle("Figure 2: Average Systolic BP by Sleep Duration Group")
 
-p2
+save_plot(fig2, "Figure2_mean_systolic_bp_by_sleep_group.png")
 
-# Save Figure 2
-ggsave(
-  "figures/mean_sys_bp_by_sleep_group.png",
-  plot = p2,
-  width = 6,
-  height = 4,
-  dpi = 300
-)
-  
-# ---------------------------------------------------------
-# FIGURE 3: Hypertension Rate by Sleep Duration Group
-# ---------------------------------------------------------
-# Shows the % classified as hypertensive within each sleep group
-
-p3 <- df2 %>%
-  filter(!is.na(sleep_group)) %>%
+# ============================================================
+# FIGURE 3: Stage 2 Hypertension Rate by Sleep Group (≥140/90)
+# ============================================================
+stage2_df <- df2 %>%
   group_by(sleep_group) %>%
-  summarise(
-    n = n(),
-    hypertension_rate = mean(hypertensive, na.rm = TRUE),  # proportion 0–1
-    .groups = "drop"
-  ) %>%
-  mutate(hypertension_pct = 100 * hypertension_rate) %>%
-  ggplot(aes(x = sleep_group, y = hypertension_pct)) +
+  summarise(stage2_rate = mean(stage2_htn, na.rm = TRUE), .groups = "drop") %>%
+  mutate(label = paste0(round(stage2_rate * 100, 1), "%"))
+
+fig3 <- ggplot(stage2_df, aes(x = sleep_group, y = stage2_rate * 100)) +
   geom_col() +
-  geom_text(aes(label = sprintf("%.1f%%", hypertension_pct)),
-            vjust = -0.4, size = 4) +
+  geom_text(aes(label = label), vjust = -0.4) +
   labs(
-    title = "Hypertension Rate by Sleep Duration Group",
-    subtitle = "Hypertension defined as systolic ≥ 130 or diastolic ≥ 80",
-    x = "Sleep Duration Group (hours)",
-    y = "Percent Hypertensive (%)"
-  ) +
-  ylim(0, max(df2$hypertensive, na.rm = TRUE) * 100 + 5) +  # gives label room
-  theme_minimal()
-
-p3
-
-# Save Figure 3
-ggsave(
-  "figures/hypertension_rate_by_sleep_group.png",
-  plot = p3,
-  width = 6,
-  height = 4,
-  dpi = 300
-)
-
-# ---------------------------------------------------------
-# FIGURE 4: Stage 2 Hypertension Rate by Sleep Duration Group
-# ---------------------------------------------------------
-# Rationale:
-# Using the standard ≥130/80 definition classifies nearly the entire
-# sample as hypertensive. To improve interpretability, we define
-# Stage 2 hypertension using a stricter clinical cutoff:
-#   - Systolic ≥ 140 OR Diastolic ≥ 90
-# ---------------------------------------------------------
-
-# Create Stage 2 hypertension indicator
-df2 <- df2 %>%
-  mutate(
-    stage2_htn = if_else(sys_bp >= 140 | dia_bp >= 90, 1L, 0L)
-  )
-
-# Sanity check: confirm variable exists and distribution looks reasonable
-table(df2$stage2_htn)
-
-# ---------------------------------------------------------
-# Aggregate Stage 2 hypertension rate by sleep group
-# ---------------------------------------------------------
-
-p4_stage2 <- df2 %>%
-  filter(!is.na(sleep_group)) %>%
-  group_by(sleep_group) %>%
-  summarise(
-    n = n(),
-    stage2_rate = mean(stage2_htn, na.rm = TRUE),  # proportion (0–1)
-    .groups = "drop"
-  ) %>%
-  mutate(stage2_pct = 100 * stage2_rate) %>%
-  ggplot(aes(x = sleep_group, y = stage2_pct)) +
-  geom_col(fill = "steelblue") +
-  geom_text(
-    aes(label = sprintf("%.1f%%", stage2_pct)),
-    vjust = -0.4,
-    size = 4
-  ) +
-  labs(
-    title = "Stage 2 Hypertension Rate by Sleep Duration Group",
-    subtitle = "Stage 2 defined as systolic ≥ 140 or diastolic ≥ 90",
     x = "Sleep Duration Group (hours)",
     y = "Percent with Stage 2 Hypertension (%)"
   ) +
-  theme_minimal()
+  ylim(0, max(stage2_df$stage2_rate * 100) + 10) +
+  theme_minimal() +
+  ggtitle("Figure 3: Stage 2 Hypertension Rate by Sleep Duration Group")
 
-# Display the plot
-p4_stage2
+save_plot(fig3, "Figure3_stage2_hypertension_rate_by_sleep_group.png")
 
-# ---------------------------------------------------------
-# Save Figure 4 for use in the paper
-# ---------------------------------------------------------
-
-ggsave(
-  filename = "figures/stage2_hypertension_rate_by_sleep_group.png",
-  plot = p3_stage2,
-  width = 6,
-  height = 4,
-  dpi = 300
-)
-
-# ---------------------------------------------------------
-# FIGURE 5A: Quadratic relationship between sleep duration
-#            and systolic blood pressure (raw data + fit)
-# ---------------------------------------------------------
-
-p5a <- ggplot(df2, aes(x = `Sleep Duration`, y = sys_bp)) +
-  geom_point(alpha = 0.15) +
-  geom_smooth(
-    method = "lm",
-    formula = y ~ poly(x, 2, raw = TRUE),
-    se = TRUE
-  ) +
-  labs(
-    title = "Non-linear Relationship Between Sleep Duration and Systolic BP",
-    subtitle = "Quadratic fit indicates lowest BP at moderate sleep durations",
-    x = "Sleep Duration (hours)",
-    y = "Systolic Blood Pressure (mmHg)"
-  ) +
-  theme_minimal()
-
-p5a
-
-ggsave(
-  "figures/figure5_quadratic_sleep_vs_systolic_bp_raw.png",
-  plot = p5a,
-  width = 6,
-  height = 4,
-  dpi = 300
-)
-
-# ---------------------------------------------------------
-# FIGURE 5B: Predicted systolic BP from quadratic model
-#            with 95% confidence interval
-# ---------------------------------------------------------
-
-# Fit quadratic model
+# ============================================================
+# FIGURE 4: Quadratic model predicted systolic BP with 95% CI
+# ============================================================
+# # NOTE: quadratic regression
 m_quad <- lm(sys_bp ~ poly(`Sleep Duration`, 2, raw = TRUE), data = df2)
 
-# Create prediction grid
-sleep_grid <- tibble(
-  `Sleep Duration` = seq(
+pred_grid <- tibble(
+  sleep = seq(
     min(df2$`Sleep Duration`, na.rm = TRUE),
     max(df2$`Sleep Duration`, na.rm = TRUE),
     length.out = 200
   )
 )
 
-# Generate predictions
-pred <- predict(m_quad, newdata = sleep_grid, se.fit = TRUE)
+pred <- predict(
+  m_quad,
+  newdata = tibble(`Sleep Duration` = pred_grid$sleep),
+  interval = "confidence",
+  level = 0.95
+)
 
-sleep_grid <- sleep_grid %>%
-  mutate(
-    fit   = pred$fit,
-    se    = pred$se.fit,
-    lower = fit - 1.96 * se,
-    upper = fit + 1.96 * se
-  )
+pred_df <- bind_cols(
+  pred_grid,
+  as_tibble(pred) %>% rename(fit = fit, lwr = lwr, upr = upr)
+)
 
-# Plot predicted curve
-p5b <- ggplot(sleep_grid, aes(x = `Sleep Duration`, y = fit)) +
-  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25) +
+fig4 <- ggplot(pred_df, aes(x = sleep, y = fit)) +
+  geom_ribbon(aes(ymin = lwr, ymax = upr), alpha = 0.25) +
   geom_line(linewidth = 1) +
   labs(
-    title = "Predicted Systolic Blood Pressure by Sleep Duration",
-    subtitle = "Quadratic model with 95% confidence interval",
     x = "Sleep Duration (hours)",
     y = "Predicted Systolic Blood Pressure (mmHg)"
   ) +
-  theme_minimal()
+  theme_minimal() +
+  ggtitle("Figure 4: Predicted Systolic BP by Sleep Duration (Quadratic + 95% CI)")
 
-p5b
+save_plot(fig4, "Figure4_quadratic_predicted_systolic_bp_with_CI.png")
 
-ggsave(
-  "figures/figure5_quadratic_sleep_vs_systolic_bp_predicted.png",
-  plot = p5b,
-  width = 6,
-  height = 4,
-  dpi = 300
+
+# ============================================================
+# Figure 5: Decision Tree (Stage 2 Hypertension)
+# ============================================================
+
+# Packages
+library(tidyverse)
+library(readxl)
+library(rpart)
+library(rpart.plot)
+
+# 1) Load data
+df_raw <- read_excel("data/Sleep.data.xlsx")
+
+# 2) Clean BP: split "120/80" into sys/dia
+df <- df_raw %>%
+  separate(
+    col = `Blood Pressure`,
+    into = c("sys_bp", "dia_bp"),
+    sep = "/",
+    convert = TRUE
+  )
+
+# 3) Outcome: Stage 2 hypertension (≥140 systolic OR ≥90 diastolic)
+df <- df %>%
+  mutate(
+    stage2_htn = if_else(sys_bp >= 140 | dia_bp >= 90, 1, 0),
+    stage2_htn = factor(stage2_htn, levels = c(0, 1), labels = c("No", "Yes"))
+  )
+
+# 4) Fit decision tree (classification)
+# NOTE: cp controls how complex the tree is (bigger = simpler)
+tree_model <- rpart(
+  stage2_htn ~ `Sleep Duration` +
+    `Quality of Sleep` +
+    `Physical Activity Level` +
+    `Stress Level` +
+    `BMI Category` +
+    Age +
+    `Daily Steps` +
+    Gender +
+    `Sleep Disorder`,
+  data = df,
+  method = "class",
+  control = rpart.control(cp = 0.01)
 )
 
-# ---------------------------------------------------------
-# Model comparison: Linear vs Quadratic relationship
-# ---------------------------------------------------------
-# Purpose:
-# Test whether a quadratic model better captures the relationship
-# between sleep duration and systolic blood pressure than a linear model.
-# ---------------------------------------------------------
+# 5) Plot tree (to Viewer / Plots)
+rpart.plot(
+  tree_model,
+  type = 3,                 # clean split labels
+  extra = 104,              # show probs + % + n
+  fallen.leaves = TRUE,
+  main = "Figure 5: Decision Tree Predicting Stage 2 Hypertension"
+)
 
-# Linear model
-m_lin <- lm(sys_bp ~ `Sleep Duration`, data = df2)
+# 6) Save PNG (keeps your repo organized)
+dir.create("figures/blood_pressure", showWarnings = FALSE, recursive = TRUE)
 
-# Quadratic model
-m_quad <- lm(sys_bp ~ poly(`Sleep Duration`, 2, raw = TRUE), data = df2)
+png("figures/blood_pressure/fig5_decision_tree_stage2_htn.png",
+    width = 1600, height = 1000, res = 200)
 
-# View model summaries
-summary(m_lin)
-summary(m_quad)
+rpart.plot(
+  tree_model,
+  type = 3,
+  extra = 104,
+  fallen.leaves = TRUE,
+  main = "Figure 5: Decision Tree Predicting Stage 2 Hypertension"
+)
 
-# Compare linear and quadratic models
-anova(m_lin, m_quad)
-
-# Compare model fit statistics
-summary(m_lin)$adj.r.squared
-summary(m_quad)$adj.r.squared
-
-AIC(m_lin)
-AIC(m_quad)
-
+dev.off()
